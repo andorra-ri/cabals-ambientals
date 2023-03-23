@@ -1,42 +1,57 @@
 library(dplyr)
 library(lubridate)
 
-cabals<-read.csv("sample.csv", header=TRUE,sep=',')
+file <- "sample.csv"
+year_init <- 2011
+year_final <- 2020
+max_order <- 100
 
-#Recuperem els anys per obtenir valors diaris consecutius per anys 
-cabals<-mutate(cabals,any = year(as.Date(Fecha,"%d/%m/%Y")))
+flows <- read.csv(file, header = TRUE, sep = ",")
 
-#Eliminem la columna Fecha 
-cabals<-cabals[,-c(1)]
+flows <- flows %>%
+  mutate(Year = year(as.Date(Fecha, "%d/%m/%Y")),
+         Media = as.numeric(sub(",", ".", flows$Media))) %>%
+  select(Year, Media)
 
-#Fem que Media siguin considerats com a numèrics després de substituir la , per .
-cabals<-mutate(cabals,Media=as.numeric(sub(",",".",cabals$Media)))
-
-#Per cada j=1 a 100 Creo un resum amb mitjanes mòbils d'ordre j
-#Per cada any i escullo els mínims per cada any per aquestes mitjanes d'ordre j 
-#Calculo la mitjana en un vector vs
-Qba=NULL
-for (an in 2011:2020){
-  vr=NULL
-  vj=NULL  
-  vs=NULL
-  for (j in 1:100){
-    v=NULL
-    ultim=365-j+1
-    for (dia in 1:ultim){
-      diafi=dia+j-1
-      v[dia]=mean(cabals[cabals$any==an,]$Media[dia:diafi])}
-    vs[j]=min(v)}
-  for (j in 1:99){
-    if (vs[j]!=0){vr[j]=(vs[j+1]-vs[j])/vs[j]}}
-    
-  #Calculem el màxim de les variacions relatives
-  m=max(vr[!is.na(vr)])
-  #Recuperem el màxim dels valors de mitjanes pels quals hem trobat aquest màxim
-  posicio=which((vr==m))
-  Qba[an-2010]=vs[posicio+1]
+min_value <- function(year, order, year_days, flows) {
+  means_order <- NULL
+  last_day <- year_days - order + 1
+  for (Day in 1:last_day) {
+    end_day <- Day + order - 1
+    means_order[Day] <- mean(flows[flows$Year ==
+                                    year, ]$Media[Day:end_day])
   }
+  min_value <- min(means_order)
+  return(min_value)
+}
 
-Qb=mean(Qba)
-  
-print(paste('El cabal base és',Qb,'m3/s'))
+Qb_year <- function(min_values) {
+  ratio <- NULL
+  for (order in 1:(max_order - 1)) {
+    if (min_values[order] != 0) {
+      ratio[order] <- (min_values[order + 1] -
+                        min_values[order]) / min_values[order]
+    }
+  }
+  Qb_year <- min_values[which((ratio == max(ratio[!is.na(ratio)]))) +
+                         1]
+  return(Qb_year)
+}
+
+Qb <- function(flows, year_init, year_final) {
+  Qb_years <- NULL
+  for (year in year_init:year_final) {
+    min_values <- NULL
+    year_days <- sum(flows$Year == year)
+    for (order in 1:max_order) {
+      min_values[order] <- min_value(year, order,
+                                    year_days, flows)
+    }
+    Qb_years[year - (year_init) + 1] <- Qb_year(min_values)
+  }
+  Qb <- mean(Qb_years)
+  return(Qb)
+}
+
+Qb_value <- Qb(flows, year_init, year_final)
+print(paste("Base flow is ", Qb_value, "m3/s"))
